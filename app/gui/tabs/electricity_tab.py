@@ -144,7 +144,7 @@ class ElectricityTab(BaseTab):
 
 class ReadingDialog(ModalDialog):
     def __init__(self, parent):
-        super().__init__(parent, title="Новое показание", width=400, height=320)
+        super().__init__(parent, title="Новое показание", width=450, height=400)
         self._build_form()
 
     def _build_form(self):
@@ -161,8 +161,15 @@ class ReadingDialog(ModalDialog):
 
         self.member_var = ctk.StringVar(value=member_names[0] if member_names else "")
         self.member_menu = ctk.CTkOptionMenu(form, variable=self.member_var,
-                                              values=member_names or ["—"], width=350)
+                                              values=member_names or ["—"], width=350,
+                                              command=self._on_member_selected)
         self.member_menu.pack(fill="x", pady=(0, 5))
+
+        self.prev_reading_label = ctk.CTkLabel(
+            form, text="Предыдущее показание: —",
+            font=ctk.CTkFont(size=11), text_color="gray"
+        )
+        self.prev_reading_label.pack(anchor="w", pady=(0, 5))
 
         ctk.CTkLabel(form, text="Дата показания").pack(anchor="w", pady=(5, 0))
         self.date_picker = DatePicker(form)
@@ -177,6 +184,26 @@ class ReadingDialog(ModalDialog):
         ctk.CTkButton(btn_frame, text="Сохранить", command=self._save).pack(side="left", padx=5)
         ctk.CTkButton(btn_frame, text="Отмена", fg_color="gray",
                        command=self._on_cancel).pack(side="left", padx=5)
+
+        # Load previous reading for initial member
+        if member_names:
+            self._on_member_selected(member_names[0])
+
+    def _on_member_selected(self, choice):
+        member_id = self._member_map.get(choice)
+        if not member_id:
+            self.prev_reading_label.configure(text="Предыдущее показание: —")
+            return
+        with db_session(readonly=True) as session:
+            last = session.query(MeterReading).filter(
+                MeterReading.member_id == member_id
+            ).order_by(MeterReading.reading_date.desc(), MeterReading.id.desc()).first()
+            if last:
+                self.prev_reading_label.configure(
+                    text=f"Предыдущее показание: {last.value} (от {last.reading_date})"
+                )
+            else:
+                self.prev_reading_label.configure(text="Предыдущее показание: нет данных")
 
     def _save(self):
         member_id = self._member_map.get(self.member_var.get())
@@ -292,6 +319,11 @@ class TariffDialog(ModalDialog):
         self.tariff_list = ctk.CTkTextbox(self, state="disabled")
         self.tariff_list.pack(fill="both", expand=True, padx=10, pady=5)
 
+        bottom_frame = ctk.CTkFrame(self)
+        bottom_frame.pack(fill="x", padx=10, pady=(0, 10))
+        ctk.CTkButton(bottom_frame, text="Закрыть", fg_color="gray",
+                       command=self._on_cancel).pack(side="right", padx=5)
+
     def _load_tariffs(self):
         with db_session(readonly=True) as session:
             tariffs = session.query(ElectricityTariff).order_by(
@@ -344,6 +376,11 @@ class SntMeterDialog(ModalDialog):
         self._load_readings()
 
     def _build_form(self):
+        ctk.CTkLabel(
+            self, text="Общий счётчик фиксирует показания для всего СНТ",
+            font=ctk.CTkFont(size=11), text_color="gray"
+        ).pack(padx=10, pady=(5, 0))
+
         add_frame = ctk.CTkFrame(self)
         add_frame.pack(fill="x", padx=10, pady=5)
 
@@ -360,6 +397,11 @@ class SntMeterDialog(ModalDialog):
 
         self.readings_list = ctk.CTkTextbox(self, state="disabled")
         self.readings_list.pack(fill="both", expand=True, padx=10, pady=5)
+
+        bottom_frame = ctk.CTkFrame(self)
+        bottom_frame.pack(fill="x", padx=10, pady=(0, 10))
+        ctk.CTkButton(bottom_frame, text="Закрыть", fg_color="gray",
+                       command=self._on_cancel).pack(side="right", padx=5)
 
     def _load_readings(self):
         with db_session(readonly=True) as session:

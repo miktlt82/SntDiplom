@@ -29,6 +29,8 @@ TARGET_PAYMENT_COLUMNS = [
     {"id": "full_name", "text": "ФИО", "width": 220},
     {"id": "amount_due", "text": "Начислено", "width": 100, "anchor": "e"},
     {"id": "amount_paid", "text": "Оплачено", "width": 100, "anchor": "e"},
+    {"id": "remaining", "text": "Осталось", "width": 100, "anchor": "e"},
+    {"id": "payment_date", "text": "Дата оплаты", "width": 100, "anchor": "center"},
     {"id": "status", "text": "Статус", "width": 100, "anchor": "center"},
 ]
 
@@ -120,13 +122,16 @@ class TargetFeeTab(BaseTab):
             rows = []
             total_due = Decimal("0")
             total_paid = Decimal("0")
+            total_remaining = Decimal("0")
             status_text = {"paid": "Оплачено", "partial": "Частично", "not_paid": "Не оплачено"}
 
             for pay, member in results:
                 status = pay.status
                 tag = {"paid": "paid", "partial": "partial", "not_paid": "not_paid"}.get(status, "")
+                remaining = pay.amount_due - pay.amount_paid
                 total_due += pay.amount_due
                 total_paid += pay.amount_paid
+                total_remaining += remaining
 
                 rows.append({
                     "id": pay.id,
@@ -134,13 +139,15 @@ class TargetFeeTab(BaseTab):
                     "full_name": member.full_name,
                     "amount_due": f"{pay.amount_due:.2f}",
                     "amount_paid": f"{pay.amount_paid:.2f}",
+                    "remaining": f"{remaining:.2f}",
+                    "payment_date": str(pay.payment_date) if pay.payment_date else "—",
                     "status": status_text.get(status, status),
                     "tag": tag,
                 })
 
             self.tree.load_data(rows)
             self.summary_label.configure(
-                text=f"Начислено: {total_due:.2f}  |  Оплачено: {total_paid:.2f}  |  Записей: {len(rows)}"
+                text=f"Начислено: {total_due:.2f}  |  Оплачено: {total_paid:.2f}  |  Осталось: {total_remaining:.2f}  |  Записей: {len(rows)}"
             )
 
     def _create_campaign(self):
@@ -221,7 +228,7 @@ class TargetFeeTab(BaseTab):
 
 class CampaignDialog(ModalDialog):
     def __init__(self, parent):
-        super().__init__(parent, title="Новая кампания", width=450, height=380)
+        super().__init__(parent, title="Новая кампания", width=500, height=430)
         self._build_form()
 
     def _build_form(self):
@@ -296,7 +303,7 @@ class CampaignDialog(ModalDialog):
 
 class TargetPaymentRecordDialog(ModalDialog):
     def __init__(self, parent, payment_id: int):
-        super().__init__(parent, title="Записать оплату", width=350, height=230)
+        super().__init__(parent, title="Записать оплату", width=400, height=280)
         self.payment_id = payment_id
         self._build_form()
 

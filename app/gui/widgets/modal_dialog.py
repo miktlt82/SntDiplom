@@ -11,6 +11,7 @@ class ModalDialog(ctk.CTkToplevel):
         super().__init__(parent)
         self.title(title)
         self.geometry(f"{width}x{height}")
+        self.minsize(width, height)
         self.resizable(True, True)
         self.transient(parent)
         self.grab_set()
