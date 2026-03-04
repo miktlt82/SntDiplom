@@ -1,12 +1,13 @@
 """Toolbar with theme, DB selection, backup controls."""
 
 from __future__ import annotations
+import shutil
 from tkinter import messagebox, filedialog, simpledialog
 from pathlib import Path
 import customtkinter as ctk
 
 from app.config import DATA_DIR
-from app.database.engine import switch_database, get_current_db_path
+from app.database.engine import switch_database, get_current_db_path, dispose_engine
 from app.services.backup_service import create_backup, list_databases, list_backups, restore_backup
 from app.services.import_service import import_members_csv, import_members_excel
 from app.services.export_service import (
@@ -67,6 +68,14 @@ class Toolbar(ctk.CTkFrame):
             self, text="Экспорт", width=80, command=self._do_export
         )
         self.export_menu_btn.pack(side="left", padx=5)
+
+        # DB file import/export
+        ctk.CTkLabel(self, text="|").pack(side="left", padx=10)
+
+        ctk.CTkButton(self, text="Экспорт БД", width=100,
+                       command=self._export_db).pack(side="left", padx=5)
+        ctk.CTkButton(self, text="Импорт БД", width=100,
+                       command=self._import_db).pack(side="left", padx=5)
 
         self._refresh_db_list()
 
@@ -252,3 +261,52 @@ class Toolbar(ctk.CTkFrame):
                     on_success=lambda _: messagebox.showinfo("Экспорт", f"Сохранено: {path}"),
                     on_error=lambda e: messagebox.showerror("Ошибка экспорта", str(e)),
                 )
+
+    def _export_db(self):
+        current = get_current_db_path()
+        if not current or not current.exists():
+            messagebox.showwarning("Внимание", "Нет активной базы данных")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Экспорт базы данных",
+            defaultextension=".db",
+            filetypes=[("SQLite DB", "*.db"), ("Все файлы", "*.*")],
+            initialfile=current.name,
+        )
+        if not path:
+            return
+        try:
+            dispose_engine()
+            shutil.copy2(current, path)
+            switch_database(current)
+            messagebox.showinfo("Экспорт БД", f"База данных экспортирована:\n{path}")
+        except Exception as e:
+            switch_database(current)
+            messagebox.showerror("Ошибка экспорта", str(e))
+
+    def _import_db(self):
+        path = filedialog.askopenfilename(
+            title="Импорт базы данных",
+            filetypes=[("SQLite DB", "*.db"), ("Все файлы", "*.*")],
+        )
+        if not path:
+            return
+        src = Path(path)
+        if not src.exists():
+            messagebox.showerror("Ошибка", "Файл не найден")
+            return
+        dest = DATA_DIR / src.name
+        if dest.exists():
+            if not messagebox.askyesno(
+                "Подтверждение",
+                f"Файл {src.name} уже существует в каталоге данных.\nПерезаписать?"
+            ):
+                return
+        try:
+            dispose_engine()
+            shutil.copy2(src, dest)
+            switch_database(dest)
+            self._refresh_db_list()
+            messagebox.showinfo("Импорт БД", f"База данных импортирована: {src.name}")
+        except Exception as e:
+            messagebox.showerror("Ошибка импорта", str(e))

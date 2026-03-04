@@ -1,4 +1,4 @@
-"""Membership fee tab — periods, payments table, penalty calculation."""
+"""Membership fee tab — periods, payments table."""
 
 from __future__ import annotations
 from datetime import date
@@ -13,9 +13,7 @@ from app.gui.widgets.modal_dialog import ModalDialog
 from app.database.engine import db_session
 from app.database.models.member import Member
 from app.database.models.membership_fee import MembershipFeePeriod, MembershipFeePayment
-from app.services.fee_calculator import (
-    calculate_penalty, generate_payments_for_period, record_payment
-)
+from app.services.fee_calculator import generate_payments_for_period, record_payment
 from app.services.audit_service import log_action
 from app.constants import AuditAction, PaymentStatus
 from app.event_bus import event_bus
@@ -29,7 +27,7 @@ PAYMENT_COLUMNS = [
     {"id": "area", "text": "Площадь", "width": 80, "anchor": "center"},
     {"id": "amount_due", "text": "Начислено", "width": 100, "anchor": "e"},
     {"id": "amount_paid", "text": "Оплачено", "width": 100, "anchor": "e"},
-    {"id": "penalty", "text": "Пеня", "width": 80, "anchor": "e"},
+    {"id": "remaining", "text": "Остаток", "width": 100, "anchor": "e"},
     {"id": "status", "text": "Статус", "width": 100, "anchor": "center"},
 ]
 
@@ -37,30 +35,34 @@ PAYMENT_COLUMNS = [
 class MembershipFeeTab(BaseTab):
 
     def _build_ui(self):
-        # Period selector
-        period_frame = ctk.CTkFrame(self.frame)
-        period_frame.pack(fill="x", padx=5, pady=5)
+        # Period selector — row 1
+        row1 = ctk.CTkFrame(self.frame)
+        row1.pack(fill="x", padx=5, pady=(5, 2))
 
-        ctk.CTkLabel(period_frame, text="Период:").pack(side="left", padx=5)
+        ctk.CTkLabel(row1, text="Период:").pack(side="left", padx=5)
         self.period_var = ctk.StringVar()
         self.period_menu = ctk.CTkOptionMenu(
-            period_frame, variable=self.period_var,
+            row1, variable=self.period_var,
             values=["—"], command=self._on_period_selected, width=250
         )
         self.period_menu.pack(side="left", padx=5)
 
+        # Action buttons — row 2
+        row2 = ctk.CTkFrame(self.frame)
+        row2.pack(fill="x", padx=5, pady=(2, 5))
+
         ctk.CTkButton(
-            period_frame, text="+ Новый период", width=140,
+            row2, text="+ Новый период", width=140,
             command=self._create_period
         ).pack(side="left", padx=5)
 
         ctk.CTkButton(
-            period_frame, text="Сгенерировать", width=130,
+            row2, text="Сгенерировать", width=130,
             command=self._generate_payments
         ).pack(side="left", padx=5)
 
         ctk.CTkButton(
-            period_frame, text="Записать оплату", width=130,
+            row2, text="Записать оплату", width=130,
             command=self._record_payment_dialog
         ).pack(side="left", padx=5)
 
@@ -133,18 +135,18 @@ class MembershipFeeTab(BaseTab):
             rows = []
             total_due = Decimal("0")
             total_paid = Decimal("0")
-            total_penalty = Decimal("0")
+            total_remaining = Decimal("0")
 
             status_text = {"paid": "Оплачено", "partial": "Частично", "not_paid": "Не оплачено"}
 
             for pay, member in results:
-                penalty = calculate_penalty(pay, period)
                 status = pay.status
                 tag = {"paid": "paid", "partial": "partial", "not_paid": "not_paid"}.get(status, "")
+                remaining = pay.amount_due - pay.amount_paid
 
                 total_due += pay.amount_due
                 total_paid += pay.amount_paid
-                total_penalty += penalty
+                total_remaining += remaining
 
                 rows.append({
                     "id": pay.id,
@@ -153,7 +155,7 @@ class MembershipFeeTab(BaseTab):
                     "area": str(member.plot_area),
                     "amount_due": f"{pay.amount_due:.2f}",
                     "amount_paid": f"{pay.amount_paid:.2f}",
-                    "penalty": f"{penalty:.2f}",
+                    "remaining": f"{remaining:.2f}",
                     "status": status_text.get(status, status),
                     "tag": tag,
                 })
@@ -161,7 +163,7 @@ class MembershipFeeTab(BaseTab):
             self.tree.load_data(rows)
             self.summary_label.configure(
                 text=f"Начислено: {total_due:.2f}  |  Оплачено: {total_paid:.2f}  |  "
-                     f"Пеня: {total_penalty:.2f}  |  Записей: {len(rows)}"
+                     f"Остаток: {total_remaining:.2f}  |  Записей: {len(rows)}"
             )
 
     def _create_period(self):
@@ -213,7 +215,7 @@ class MembershipFeeTab(BaseTab):
 
 class PeriodDialog(ModalDialog):
     def __init__(self, parent):
-        super().__init__(parent, title="Новый период", width=400, height=350)
+        super().__init__(parent, title="Новый период", width=400, height=300)
         self._build_form()
 
     def _build_form(self):
@@ -238,11 +240,6 @@ class PeriodDialog(ModalDialog):
         self.due_date = DatePicker(form)
         self.due_date.pack(fill="x", pady=(0, 5))
 
-        ctk.CTkLabel(form, text="Пеня (дневная ставка, напр. 0.001 = 0.1%)").pack(anchor="w", pady=(5, 0))
-        self.penalty_entry = ctk.CTkEntry(form)
-        self.penalty_entry.pack(fill="x", pady=(0, 5))
-        self.penalty_entry.insert(0, "0.001")
-
         btn_frame = ctk.CTkFrame(self)
         btn_frame.pack(fill="x", padx=10, pady=10)
         ctk.CTkButton(btn_frame, text="Создать", command=self._save).pack(side="left", padx=5)
@@ -253,7 +250,6 @@ class PeriodDialog(ModalDialog):
         try:
             year = int(self.year_entry.get().strip())
             rate = Decimal(self.rate_entry.get().strip()).quantize(Decimal("0.01"))
-            penalty = Decimal(self.penalty_entry.get().strip())
         except (ValueError, InvalidOperation):
             messagebox.showwarning("Внимание", "Проверьте числовые поля")
             return
@@ -263,9 +259,6 @@ class PeriodDialog(ModalDialog):
             return
         if not (2000 <= year <= 2100):
             messagebox.showwarning("Внимание", "Год должен быть от 2000 до 2100")
-            return
-        if not (Decimal("0") < penalty < Decimal("1")):
-            messagebox.showwarning("Внимание", "Пеня должна быть от 0 до 1 (напр. 0.001)")
             return
 
         due = self.due_date.get_date()
@@ -281,7 +274,7 @@ class PeriodDialog(ModalDialog):
             with db_session() as session:
                 period = MembershipFeePeriod(
                     name=name, year=year, rate_per_sotka=rate,
-                    due_date=due, penalty_daily_rate=penalty
+                    due_date=due,
                 )
                 session.add(period)
                 session.flush()

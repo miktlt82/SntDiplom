@@ -10,7 +10,6 @@ from app.database.models.membership_fee import MembershipFeePeriod, MembershipFe
 from app.database.models.member import Member
 from app.services.fee_calculator import (
     calculate_fee_for_member,
-    calculate_penalty,
     generate_payments_for_period,
     record_payment,
 )
@@ -29,50 +28,6 @@ class TestCalculateFee:
         member = seed_members[1]  # plot_area=10
         fee = calculate_fee_for_member(seed_period, member)
         assert fee == Decimal("5000.00")  # 500 * 10
-
-
-class TestCalculatePenalty:
-    def test_no_penalty_before_due_date(self, session, seed_period):
-        payment = MembershipFeePayment(
-            period_id=seed_period.id, member_id=1,
-            amount_due=Decimal("3000"), amount_paid=Decimal("0"),
-        )
-        penalty = calculate_penalty(payment, seed_period, as_of=date(2025, 6, 30))
-        assert penalty == Decimal("0.00")
-
-    def test_no_penalty_on_due_date(self, session, seed_period):
-        payment = MembershipFeePayment(
-            period_id=seed_period.id, member_id=1,
-            amount_due=Decimal("3000"), amount_paid=Decimal("0"),
-        )
-        penalty = calculate_penalty(payment, seed_period, as_of=date(2025, 7, 1))
-        assert penalty == Decimal("0.00")
-
-    def test_penalty_after_due_date(self, session, seed_period):
-        payment = MembershipFeePayment(
-            period_id=seed_period.id, member_id=1,
-            amount_due=Decimal("3000"), amount_paid=Decimal("0"),
-        )
-        # 10 days overdue: 3000 * 0.001 * 10 = 30.00
-        penalty = calculate_penalty(payment, seed_period, as_of=date(2025, 7, 11))
-        assert penalty == Decimal("30.00")
-
-    def test_no_penalty_if_fully_paid(self, session, seed_period):
-        payment = MembershipFeePayment(
-            period_id=seed_period.id, member_id=1,
-            amount_due=Decimal("3000"), amount_paid=Decimal("3000"),
-        )
-        penalty = calculate_penalty(payment, seed_period, as_of=date(2025, 8, 1))
-        assert penalty == Decimal("0.00")
-
-    def test_partial_payment_penalty(self, session, seed_period):
-        payment = MembershipFeePayment(
-            period_id=seed_period.id, member_id=1,
-            amount_due=Decimal("3000"), amount_paid=Decimal("1000"),
-        )
-        # Outstanding=2000, 5 days: 2000 * 0.001 * 5 = 10.00
-        penalty = calculate_penalty(payment, seed_period, as_of=date(2025, 7, 6))
-        assert penalty == Decimal("10.00")
 
 
 class TestGeneratePayments:

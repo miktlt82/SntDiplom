@@ -38,25 +38,29 @@ TARGET_PAYMENT_COLUMNS = [
 class TargetFeeTab(BaseTab):
 
     def _build_ui(self):
-        # Campaign selector
-        top = ctk.CTkFrame(self.frame)
-        top.pack(fill="x", padx=5, pady=5)
+        # Campaign selector — row 1
+        row1 = ctk.CTkFrame(self.frame)
+        row1.pack(fill="x", padx=5, pady=(5, 2))
 
-        ctk.CTkLabel(top, text="Кампания:").pack(side="left", padx=5)
+        ctk.CTkLabel(row1, text="Кампания:").pack(side="left", padx=5)
         self.campaign_var = ctk.StringVar()
         self.campaign_menu = ctk.CTkOptionMenu(
-            top, variable=self.campaign_var,
+            row1, variable=self.campaign_var,
             values=["—"], command=self._on_campaign_selected, width=300
         )
         self.campaign_menu.pack(side="left", padx=5)
 
-        ctk.CTkButton(top, text="+ Новая кампания", width=150,
+        # Action buttons — row 2
+        row2 = ctk.CTkFrame(self.frame)
+        row2.pack(fill="x", padx=5, pady=(2, 5))
+
+        ctk.CTkButton(row2, text="+ Новая кампания", width=150,
                        command=self._create_campaign).pack(side="left", padx=5)
-        ctk.CTkButton(top, text="Сгенерировать", width=130,
+        ctk.CTkButton(row2, text="Сгенерировать", width=130,
                        command=self._generate_payments).pack(side="left", padx=5)
-        ctk.CTkButton(top, text="Записать оплату", width=130,
+        ctk.CTkButton(row2, text="Записать оплату", width=130,
                        command=self._record_payment_dialog).pack(side="left", padx=5)
-        ctk.CTkButton(top, text="Документы", width=100,
+        ctk.CTkButton(row2, text="Документы", width=100,
                        command=self._manage_documents).pack(side="left", padx=5)
 
         # Table
@@ -347,11 +351,19 @@ class TargetPaymentRecordDialog(ModalDialog):
             return
 
         try:
+            from app.database.models.payment_history import PaymentHistory
             with db_session() as session:
                 pay = session.get(TargetFeePayment, self.payment_id)
                 if pay:
                     pay.amount_paid = pay.amount_paid + amount
                     pay.payment_date = pay_date
+                    session.add(PaymentHistory(
+                        payment_type="target",
+                        payment_id=pay.id,
+                        member_id=pay.member_id,
+                        amount=amount,
+                        payment_date=pay_date,
+                    ))
             log_action(AuditAction.PAYMENT.value, "target_fee_payment",
                        self.payment_id, f"Оплата {amount:.2f}")
             self._on_ok()

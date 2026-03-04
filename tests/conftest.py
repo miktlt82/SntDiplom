@@ -85,7 +85,6 @@ def seed_period(session):
         name="Взносы 2025", year=2025,
         rate_per_sotka=Decimal("500.00"),
         due_date=date(2025, 7, 1),
-        penalty_daily_rate=Decimal("0.001"),
     )
     session.add(period)
     session.commit()

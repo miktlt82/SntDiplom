@@ -126,33 +126,40 @@ class MemberCardDialog(ModalDialog):
                 messagebox.showwarning("Внимание", "Телефон должен содержать от 7 до 15 цифр")
                 return
 
-        try:
-            with db_session() as session:
-                if self.member_id:
-                    member = session.get(Member, self.member_id)
-                    if not member:
-                        messagebox.showerror("Ошибка", "Участник не найден")
-                        return
-                    action = AuditAction.UPDATE.value
-                else:
-                    member = Member()
-                    session.add(member)
-                    action = AuditAction.CREATE.value
+        # Check for duplicate plot number
+        with db_session(readonly=True) as session:
+            dup_query = session.query(Member).filter(Member.plot_number == plot_number)
+            if self.member_id:
+                dup_query = dup_query.filter(Member.id != self.member_id)
+            if dup_query.first():
+                messagebox.showwarning(
+                    "Внимание", f"Участок с номером {plot_number} уже существует"
+                )
+                return
 
-                member.last_name = last_name
-                member.first_name = first_name
-                member.patronymic = self._get_field("patronymic") or None
-                member.plot_number = plot_number
-                member.plot_area = plot_area
-                member.phone = self._get_field("phone") or None
-                member.email = self._get_field("email") or None
-                member.address = self._get_field("address") or None
-                member.notes = self._get_field("notes") or None
+        with db_session() as session:
+            if self.member_id:
+                member = session.get(Member, self.member_id)
+                if not member:
+                    messagebox.showerror("Ошибка", "Участник не найден")
+                    return
+                action = AuditAction.UPDATE.value
+            else:
+                member = Member()
+                session.add(member)
+                action = AuditAction.CREATE.value
 
-                session.flush()
-                log_action(action, "member", member.id,
-                           f"{member.full_name}, уч. {member.plot_number}")
-            self._on_ok()
+            member.last_name = last_name
+            member.first_name = first_name
+            member.patronymic = self._get_field("patronymic") or None
+            member.plot_number = plot_number
+            member.plot_area = plot_area
+            member.phone = self._get_field("phone") or None
+            member.email = self._get_field("email") or None
+            member.address = self._get_field("address") or None
+            member.notes = self._get_field("notes") or None
 
-        except Exception as e:
-            messagebox.showerror("Ошибка", str(e))
+            session.flush()
+            log_action(action, "member", member.id,
+                       f"{member.full_name}, уч. {member.plot_number}")
+        self._on_ok()

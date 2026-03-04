@@ -15,26 +15,6 @@ def calculate_fee_for_member(period: MembershipFeePeriod, member: Member) -> Dec
     return (period.rate_per_sotka * member.plot_area).quantize(Decimal("0.01"))
 
 
-def calculate_penalty(payment: MembershipFeePayment, period: MembershipFeePeriod,
-                      as_of: date | None = None) -> Decimal:
-    """Calculate penalty for overdue payment.
-    penalty = outstanding * daily_rate * days_overdue
-    """
-    if as_of is None:
-        as_of = date.today()
-
-    if as_of <= period.due_date:
-        return Decimal("0.00")
-
-    outstanding = payment.amount_due - payment.amount_paid
-    if outstanding <= 0:
-        return Decimal("0.00")
-
-    days_overdue = (as_of - period.due_date).days
-    penalty = (outstanding * period.penalty_daily_rate * days_overdue).quantize(Decimal("0.01"))
-    return penalty
-
-
 def generate_payments_for_period(period_id: int) -> int:
     """Generate payment records for all active members for a given period.
     Returns the number of created records.
@@ -74,6 +54,8 @@ def generate_payments_for_period(period_id: int) -> int:
 
 def record_payment(payment_id: int, amount: Decimal, payment_date: date | None = None) -> None:
     """Record a payment (or partial payment)."""
+    from app.database.models.payment_history import PaymentHistory
+
     if payment_date is None:
         payment_date = date.today()
 
@@ -84,7 +66,10 @@ def record_payment(payment_id: int, amount: Decimal, payment_date: date | None =
         payment.amount_paid = payment.amount_paid + amount
         payment.payment_date = payment_date
 
-        # Snapshot penalty at payment time
-        period = session.get(MembershipFeePeriod, payment.period_id)
-        if period:
-            payment.penalty_snapshot = calculate_penalty(payment, period, payment_date)
+        session.add(PaymentHistory(
+            payment_type="membership",
+            payment_id=payment.id,
+            member_id=payment.member_id,
+            amount=amount,
+            payment_date=payment_date,
+        ))
