@@ -9,7 +9,6 @@ from app.database.models.electricity import (
     ElectricityTariff, MeterReading, ElectricityPayment, SntMeterReading
 )
 from app.database.models.note import Note
-from app.database.models.custom_tab import CustomTab, CustomColumn, CustomRow, CustomCellValue
 from app.database.models.payment_history import PaymentHistory
 
 __all__ = [
@@ -20,6 +19,5 @@ __all__ = [
     "TargetFeeCampaign", "TargetFeePayment", "TargetFeeDocument",
     "ElectricityTariff", "MeterReading", "ElectricityPayment", "SntMeterReading",
     "Note",
-    "CustomTab", "CustomColumn", "CustomRow", "CustomCellValue",
     "PaymentHistory",
 ]

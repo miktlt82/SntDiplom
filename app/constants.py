@@ -20,14 +20,6 @@ class TargetFeeType(str, enum.Enum):
     FIXED = "fixed"
 
 
-class CustomColumnType(str, enum.Enum):
-    TEXT = "text"
-    NUMBER = "number"
-    DATE = "date"
-    BOOLEAN = "boolean"
-    CHOICE = "choice"
-
-
 class AuditAction(str, enum.Enum):
     CREATE = "create"
     UPDATE = "update"

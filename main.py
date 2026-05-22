@@ -14,7 +14,6 @@ from app.gui.tabs.target_fee_tab import TargetFeeTab
 from app.gui.tabs.electricity_tab import ElectricityTab
 from app.gui.tabs.notes_tab import NotesTab
 from app.gui.tabs.analytics_tab import AnalyticsTab
-from app.gui.tabs.tab_manager import TabManager
 from app.services.backup_service import create_backup
 from app.logger import get_logger
 
@@ -23,7 +22,6 @@ logger = get_logger(__name__)
 
 def main():
     app = Application()
-    app.tab_manager = TabManager(app)
 
     # Replace default toolbar with full Toolbar widget
     for child in app.toolbar_frame.winfo_children():
@@ -42,7 +40,6 @@ def main():
     app.add_tab("Электроэнергия", ElectricityTab(app))
     app.add_tab("Заметки", NotesTab(app))
     app.add_tab("Аналитика", AnalyticsTab(app))
-    app.tab_manager.load_custom_tabs()
 
     # Auto-backup on startup
     try:

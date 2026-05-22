@@ -43,7 +43,6 @@ C:\Users\serge\PyCharmMiscProject\
 │   │       ├── target_fee.py        # TargetFeeCampaign, TargetFeePayment, TargetFeeDocument
 │   │       ├── electricity.py       # ElectricityTariff, MeterReading, ElectricityPayment, SntMeterReading
 │   │       ├── note.py              # Note
-│   │       ├── custom_tab.py        # CustomTab, CustomColumn, CustomRow, CustomCellValue (EAV)
 │   │       ├── audit_log.py         # AuditLog
 │   │       └── settings.py          # AppSettings (key-value)
 │   ├── services/
@@ -77,9 +76,7 @@ C:\Users\serge\PyCharmMiscProject\
 │           ├── target_fee_tab.py    # Целевые взносы
 │           ├── electricity_tab.py   # Электроэнергия
 │           ├── notes_tab.py         # Заметки
-│           ├── analytics_tab.py     # Дашборд с графиками
-│           ├── custom_tab.py        # Пользовательские вкладки (EAV)
-│           └── tab_manager.py       # Управление табами (добавление/удаление)
+│           └── analytics_tab.py     # Дашборд с графиками
 ├── backups/                         # Авто-создаётся: резервные копии БД
 └── data/                            # Авто-создаётся: файлы БД
     └── default_snt.db
@@ -101,16 +98,13 @@ C:\Users\serge\PyCharmMiscProject\
 ### 3. Decimal для денег
 `Numeric(12,2)` в БД, `Decimal` в Python — никогда `float` для денежных сумм.
 
-### 4. EAV-паттерн для пользовательских вкладок
-`CustomTab → CustomColumn + CustomRow → CustomCellValue` — позволяет создавать произвольные таблицы с колонками типов: text, number, date, boolean, choice.
-
-### 5. fpdf2 для PDF
+### 4. fpdf2 для PDF
 Поддержка кириллицы через TTF-шрифты. Использует DejaVuSans или системный Arial (Windows) как fallback.
 
-### 6. Переключение БД
+### 5. Переключение БД
 `dispose engine → create new engine → create_all → publish database_changed` — все табы автоматически перезагружаются.
 
-### 7. Пеня рассчитывается на лету
+### 6. Пеня рассчитывается на лету
 `(сумма_долга × дневная_ставка × дни_просрочки)`, snapshot сохраняется при записи оплаты.
 
 ## Функциональность
@@ -145,11 +139,6 @@ C:\Users\serge\PyCharmMiscProject\
 - Создание / редактирование / удаление заметок
 - Форматирование текста (жирный, курсив, подчёркивание)
 - Закрепление (pin) важных заметок
-
-### Пользовательские вкладки
-- Создание произвольных вкладок
-- Добавление столбцов разных типов (текст, число, дата, булево, выбор)
-- Добавление / редактирование / удаление строк
 
 ### Аналитика (дашборд)
 - Карточки сводки: участники, членские взносы, целевые взносы, электроэнергия
@@ -248,9 +237,6 @@ C:\Users\serge\PyCharmMiscProject\
 | content | Text | Содержание |
 | is_pinned | Boolean | Закреплена |
 
-### CustomTab / CustomColumn / CustomRow / CustomCellValue (EAV)
-Позволяют создавать произвольные таблицы с колонками типов: text, number, date, boolean, choice.
-
 ### AuditLog
 | Поле | Тип | Описание |
 |------|-----|----------|
@@ -295,9 +281,8 @@ Pillow>=10.0.0
 6. Создание целевого сбора, трекинг оплат
 7. Ввод показаний счётчиков, авто-перенос, расчёт суммы
 8. Создание заметок с форматированием
-9. Создание пользовательской вкладки с колонками разных типов
-10. Дашборд с графиками
-11. Экспорт в Excel и PDF
-12. Импорт из CSV/Excel
-13. Проверка авто-бэкапа при запуске
-14. Переключение между несколькими БД
+9. Дашборд с графиками
+10. Экспорт в Excel и PDF
+11. Импорт из CSV/Excel
+12. Проверка авто-бэкапа при запуске
+13. Переключение между несколькими БД
