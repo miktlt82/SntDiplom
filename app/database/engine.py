@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
@@ -11,11 +12,15 @@ from app.database.base import Base
 
 _engine = None
 _session_factory: sessionmaker[Session] | None = None
+_session_context: ContextVar[tuple[Session, bool] | None] = ContextVar(
+    "db_session_context", default=None
+)
 
 
 def _enable_foreign_keys(dbapi_conn, connection_record):
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA busy_timeout=30000")
     cursor.close()
 
 
@@ -33,10 +38,20 @@ def get_session() -> Session:
     return _session_factory()
 
 
+def get_active_session() -> Session | None:
+    """Return the current writable context-managed session, if one exists."""
+    current = _session_context.get()
+    if current is None:
+        return None
+    session, readonly = current
+    return None if readonly else session
+
+
 @contextmanager
 def db_session(readonly: bool = False):
     """Context manager that commits/rollbacks/closes a session automatically."""
     session = get_session()
+    token = _session_context.set((session, readonly))
     try:
         yield session
         if not readonly:
@@ -45,6 +60,7 @@ def db_session(readonly: bool = False):
         session.rollback()
         raise
     finally:
+        _session_context.reset(token)
         session.close()
 
 
@@ -65,7 +81,11 @@ def init_db(db_path: Path | str) -> None:
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    _engine = create_engine(f"sqlite:///{db_path}", echo=False)
+    _engine = create_engine(
+        f"sqlite:///{db_path}",
+        echo=False,
+        connect_args={"timeout": 30},
+    )
     event.listen(_engine, "connect", _enable_foreign_keys)
     _session_factory = sessionmaker(bind=_engine)
 

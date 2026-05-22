@@ -39,6 +39,17 @@ def csv_file_missing_fields(tmp_path):
 
 
 @pytest.fixture()
+def csv_file_comma(tmp_path):
+    """Create a comma-delimited CSV file with test data."""
+    path = tmp_path / "members_comma.csv"
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.writer(f, delimiter=",")
+        writer.writerow(["plot_number", "last_name", "first_name", "plot_area"])
+        writer.writerow(["401", "Смирнов", "Сергей", "9"])
+    return path
+
+
+@pytest.fixture()
 def excel_file(tmp_path):
     """Create a temporary Excel file with test data."""
     path = tmp_path / "members.xlsx"
@@ -74,6 +85,15 @@ class TestImportCSV:
         result = import_members_csv(csv_file_missing_fields)
         assert result["created"] == 1  # only row with plot=201
         assert len(result["errors"]) == 2  # rows with missing fields
+
+    def test_comma_delimiter_import(self, session, csv_file_comma):
+        result = import_members_csv(csv_file_comma)
+        assert result["created"] == 1
+        assert result["errors"] == []
+
+        member = session.query(Member).filter(Member.plot_number == "401").one()
+        assert member.last_name == "Смирнов"
+        assert member.plot_area == Decimal("9")
 
 
 class TestImportExcel:

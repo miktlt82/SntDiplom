@@ -138,10 +138,15 @@ class AnalyticsTab(BaseTab):
     def _apply_charts(self, data):
         mf = data["mfee"]
         self.pie_chart.pie_chart(
-            labels=["Оплачено", "Частично", "Не оплачено"],
-            values=[mf["paid_count"], mf["partial_count"], mf["not_paid_count"]],
+            labels=["Оплачено", "Переплата", "Частично", "Не оплачено"],
+            values=[
+                mf["paid_count"],
+                mf.get("overpaid_count", 0),
+                mf["partial_count"],
+                mf["not_paid_count"],
+            ],
             title="Членские взносы (статусы)",
-            colors=["#28a745", "#ffc107", "#dc3545"],
+            colors=["#28a745", "#17a2b8", "#ffc107", "#dc3545"],
         )
 
         periods = data["periods"]

@@ -3,14 +3,33 @@
 from __future__ import annotations
 from decimal import Decimal
 
-from sqlalchemy import func
+from sqlalchemy import case, func
 
 from app.database.engine import db_session
 from app.database.models.member import Member
 from app.database.models.membership_fee import MembershipFeePeriod, MembershipFeePayment
 from app.database.models.target_fee import TargetFeeCampaign, TargetFeePayment
 from app.database.models.electricity import ElectricityPayment
-from app.constants import MemberStatus, PaymentStatus
+from app.constants import MemberStatus
+
+
+def _positive_outstanding(session, payment_model) -> Decimal:
+    """Sum only unpaid balances, keeping overpayments out of debt totals."""
+    value = session.query(
+        func.coalesce(
+            func.sum(
+                case(
+                    (
+                        payment_model.amount_due > payment_model.amount_paid,
+                        payment_model.amount_due - payment_model.amount_paid,
+                    ),
+                    else_=0,
+                )
+            ),
+            0,
+        )
+    ).scalar()
+    return Decimal(str(value))
 
 
 def get_member_stats() -> dict:
@@ -33,12 +52,13 @@ def get_membership_fee_summary() -> dict:
         ).first()
         total_due = Decimal(str(row[0]))
         total_paid = Decimal(str(row[1]))
-        total_count = row[2]
-
         # Status is a computed property, so count via SQL conditions
         paid_count = session.query(func.count(MembershipFeePayment.id)).filter(
-            MembershipFeePayment.amount_paid >= MembershipFeePayment.amount_due,
+            MembershipFeePayment.amount_paid == MembershipFeePayment.amount_due,
             MembershipFeePayment.amount_due > 0,
+        ).scalar() or 0
+        overpaid_count = session.query(func.count(MembershipFeePayment.id)).filter(
+            MembershipFeePayment.amount_paid > MembershipFeePayment.amount_due,
         ).scalar() or 0
         partial_count = session.query(func.count(MembershipFeePayment.id)).filter(
             MembershipFeePayment.amount_paid > 0,
@@ -51,8 +71,9 @@ def get_membership_fee_summary() -> dict:
         return {
             "total_due": total_due,
             "total_paid": total_paid,
-            "outstanding": total_due - total_paid,
+            "outstanding": _positive_outstanding(session, MembershipFeePayment),
             "paid_count": paid_count,
+            "overpaid_count": overpaid_count,
             "partial_count": partial_count,
             "not_paid_count": not_paid_count,
         }
@@ -69,7 +90,7 @@ def get_target_fee_summary() -> dict:
         return {
             "total_due": total_due,
             "total_paid": total_paid,
-            "outstanding": total_due - total_paid,
+            "outstanding": _positive_outstanding(session, TargetFeePayment),
         }
 
 
@@ -84,16 +105,13 @@ def get_electricity_summary() -> dict:
         return {
             "total_due": total_due,
             "total_paid": total_paid,
-            "outstanding": total_due - total_paid,
+            "outstanding": _positive_outstanding(session, ElectricityPayment),
         }
 
 
 def get_debtors_list() -> list[dict]:
     """Get list of members with outstanding debts using SQL aggregation."""
     with db_session(readonly=True) as session:
-        from sqlalchemy import literal_column
-        from sqlalchemy.orm import aliased
-
         # Aggregate debt per member for each payment type
         mf_debt = session.query(
             MembershipFeePayment.member_id,

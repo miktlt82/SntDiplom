@@ -85,6 +85,17 @@ class TestRecordPayment:
         assert updated.amount_paid == Decimal("1000.00")
         assert updated.status == "partial"
 
+    def test_record_overpayment_status(self, session, seed_period, seed_members):
+        generate_payments_for_period(seed_period.id)
+        payment = session.query(MembershipFeePayment).first()
+        payment_id = payment.id
+
+        record_payment(payment_id, payment.amount_due + Decimal("1.00"), date(2025, 6, 15))
+
+        session.expire_all()
+        updated = session.get(MembershipFeePayment, payment_id)
+        assert updated.status == "overpaid"
+
     def test_record_nonexistent_payment(self, session):
         # Should not raise
         record_payment(9999, Decimal("100"), date(2025, 1, 1))

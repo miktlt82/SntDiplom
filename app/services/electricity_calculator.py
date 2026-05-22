@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+from sqlalchemy import or_
+
 from app.database.engine import db_session
 from app.database.models.electricity import (
     ElectricityTariff, MeterReading, ElectricityPayment
@@ -14,8 +16,12 @@ def get_active_tariff(session, as_of: date | None = None) -> ElectricityTariff |
     if as_of is None:
         as_of = date.today()
     return session.query(ElectricityTariff).filter(
-        ElectricityTariff.is_active == True,
+        ElectricityTariff.is_active.is_(True),
         ElectricityTariff.effective_from <= as_of,
+        or_(
+            ElectricityTariff.effective_to.is_(None),
+            ElectricityTariff.effective_to >= as_of,
+        ),
     ).order_by(ElectricityTariff.effective_from.desc()).first()
 
 

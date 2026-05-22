@@ -6,10 +6,13 @@ from decimal import Decimal
 
 import pytest
 
-from app.database.models.electricity import MeterReading, ElectricityPayment
+from app.database.models.electricity import (
+    ElectricityTariff, MeterReading, ElectricityPayment
+)
 from app.services.electricity_calculator import (
     calculate_consumption,
     detect_anomaly,
+    get_active_tariff,
     create_reading_and_payment,
 )
 
@@ -44,6 +47,28 @@ class TestDetectAnomaly:
     def test_custom_threshold(self):
         assert detect_anomaly(Decimal("200"), Decimal("90"), Decimal("2")) is True
         assert detect_anomaly(Decimal("180"), Decimal("90"), Decimal("2")) is False
+
+
+class TestActiveTariff:
+    def test_uses_tariff_effective_for_reading_date(self, session):
+        old = ElectricityTariff(
+            name="Старый",
+            rate_per_kwh=Decimal("5.00"),
+            effective_from=date(2025, 1, 1),
+            effective_to=date(2025, 3, 31),
+            is_active=True,
+        )
+        new = ElectricityTariff(
+            name="Новый",
+            rate_per_kwh=Decimal("6.00"),
+            effective_from=date(2025, 4, 1),
+            is_active=True,
+        )
+        session.add_all([old, new])
+        session.commit()
+
+        assert get_active_tariff(session, date(2025, 2, 15)).id == old.id
+        assert get_active_tariff(session, date(2025, 4, 15)).id == new.id
 
 
 class TestCreateReadingAndPayment:

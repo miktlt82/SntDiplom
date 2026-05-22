@@ -23,7 +23,7 @@ class EventBus:
             self._subscribers[event].remove(callback)
 
     def publish(self, event: str, **kwargs: Any) -> None:
-        for callback in self._subscribers[event]:
+        for callback in list(self._subscribers[event]):
             try:
                 callback(**kwargs)
             except Exception:

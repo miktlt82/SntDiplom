@@ -49,6 +49,8 @@ class Toolbar(ctk.CTkFrame):
 
         ctk.CTkButton(self, text="Новая БД", width=80,
                        command=self._create_db).pack(side="left", padx=5)
+        ctk.CTkButton(self, text="+ Вкладка", width=90,
+                       command=self._create_custom_tab).pack(side="left", padx=5)
 
         ctk.CTkLabel(self, text="|").pack(side="left", padx=10)
 
@@ -121,6 +123,13 @@ class Toolbar(ctk.CTkFrame):
         switch_database(db_path)
         self._refresh_db_list()
         event_bus.publish("status_message", message=f"Создана БД: {name}")
+
+    def _create_custom_tab(self):
+        manager = getattr(self.app, "tab_manager", None)
+        if manager is None:
+            messagebox.showerror("Ошибка", "Менеджер пользовательских вкладок не подключён")
+            return
+        manager.create_custom_tab()
 
     def _do_backup(self):
         def _on_success(path):
@@ -296,6 +305,7 @@ class Toolbar(ctk.CTkFrame):
             messagebox.showerror("Ошибка", "Файл не найден")
             return
         dest = DATA_DIR / src.name
+        current = get_current_db_path()
         if dest.exists():
             if not messagebox.askyesno(
                 "Подтверждение",
@@ -303,10 +313,22 @@ class Toolbar(ctk.CTkFrame):
             ):
                 return
         try:
-            dispose_engine()
-            shutil.copy2(src, dest)
+            try:
+                same_file = src.resolve() == dest.resolve()
+            except OSError:
+                same_file = False
+
+            if not same_file:
+                dispose_engine()
+                shutil.copy2(src, dest)
             switch_database(dest)
             self._refresh_db_list()
             messagebox.showinfo("Импорт БД", f"База данных импортирована: {src.name}")
         except Exception as e:
+            if current:
+                try:
+                    switch_database(current)
+                    self._refresh_db_list()
+                except Exception:
+                    pass
             messagebox.showerror("Ошибка импорта", str(e))

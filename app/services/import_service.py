@@ -22,13 +22,10 @@ def import_members_csv(path: str | Path) -> dict:
     """
     result = {"created": 0, "skipped": 0, "errors": []}
 
-    with open(path, "r", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f, delimiter=";")
-        if not reader.fieldnames:
-            # Try comma delimiter
-            f.seek(0)
-            reader = csv.DictReader(f, delimiter=",")
-
+    with open(path, "r", encoding="utf-8-sig", newline="") as f:
+        sample = f.read(4096)
+        f.seek(0)
+        reader = csv.DictReader(f, delimiter=_detect_csv_delimiter(sample))
         rows = list(reader)
 
     try:
@@ -176,3 +173,13 @@ def _get_field(row: dict, possible_keys: list[str]) -> str | None:
             if k and k.strip().lower() == key.lower() and row[k]:
                 return str(row[k]).strip()
     return None
+
+
+def _detect_csv_delimiter(sample: str) -> str:
+    """Detect CSV delimiter for Russian/English member imports."""
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=";,")
+        return dialect.delimiter
+    except csv.Error:
+        first_line = sample.splitlines()[0] if sample else ""
+        return "," if first_line.count(",") > first_line.count(";") else ";"

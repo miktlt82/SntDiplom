@@ -57,7 +57,9 @@ class TargetFeePayment(TimestampMixin, Base):
     def status(self) -> str:
         from app.constants import PaymentStatus
         try:
-            if self.amount_paid >= self.amount_due:
+            if self.amount_paid > self.amount_due:
+                return PaymentStatus.OVERPAID.value
+            elif self.amount_paid == self.amount_due:
                 return PaymentStatus.PAID.value
             elif self.amount_paid > 0:
                 return PaymentStatus.PARTIAL.value

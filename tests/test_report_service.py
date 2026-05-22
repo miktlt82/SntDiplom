@@ -61,6 +61,18 @@ class TestMembershipFeeSummary:
         assert summary["partial_count"] == 1
         assert summary["not_paid_count"] == 0
 
+    def test_overpayment_is_not_counted_as_debt(self, session, seed_members, seed_period):
+        m1 = seed_members[0]
+        session.add(MembershipFeePayment(
+            period_id=seed_period.id, member_id=m1.id,
+            amount_due=Decimal("3000"), amount_paid=Decimal("3500"),
+        ))
+        session.commit()
+
+        summary = get_membership_fee_summary()
+        assert summary["outstanding"] == Decimal("0")
+        assert summary["overpaid_count"] == 1
+
 
 class TestDebtorsList:
     def test_empty(self, session):

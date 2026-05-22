@@ -16,7 +16,7 @@ from app.database.models.member import Member
 from app.database.models.target_fee import (
     TargetFeeCampaign, TargetFeePayment, TargetFeeDocument
 )
-from app.constants import MemberStatus, TargetFeeType, PaymentStatus, AuditAction
+from app.constants import MemberStatus, TargetFeeType, AuditAction
 from app.services.audit_service import log_action
 from app.event_bus import event_bus
 from app.gui.widgets.progress_dialog import ProgressDialog
@@ -127,11 +127,21 @@ class TargetFeeTab(BaseTab):
             total_due = Decimal("0")
             total_paid = Decimal("0")
             total_remaining = Decimal("0")
-            status_text = {"paid": "Оплачено", "partial": "Частично", "not_paid": "Не оплачено"}
+            status_text = {
+                "paid": "Оплачено",
+                "partial": "Частично",
+                "not_paid": "Не оплачено",
+                "overpaid": "Переплата",
+            }
 
             for pay, member in results:
                 status = pay.status
-                tag = {"paid": "paid", "partial": "partial", "not_paid": "not_paid"}.get(status, "")
+                tag = {
+                    "paid": "paid",
+                    "partial": "partial",
+                    "not_paid": "not_paid",
+                    "overpaid": "overpaid",
+                }.get(status, "")
                 remaining = pay.amount_due - pay.amount_paid
                 total_due += pay.amount_due
                 total_paid += pay.amount_paid

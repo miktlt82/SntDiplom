@@ -15,7 +15,7 @@ from app.database.models.member import Member
 from app.database.models.membership_fee import MembershipFeePeriod, MembershipFeePayment
 from app.services.fee_calculator import generate_payments_for_period, record_payment
 from app.services.audit_service import log_action
-from app.constants import AuditAction, PaymentStatus
+from app.constants import AuditAction
 from app.event_bus import event_bus
 from app.gui.widgets.progress_dialog import ProgressDialog
 
@@ -137,11 +137,21 @@ class MembershipFeeTab(BaseTab):
             total_paid = Decimal("0")
             total_remaining = Decimal("0")
 
-            status_text = {"paid": "Оплачено", "partial": "Частично", "not_paid": "Не оплачено"}
+            status_text = {
+                "paid": "Оплачено",
+                "partial": "Частично",
+                "not_paid": "Не оплачено",
+                "overpaid": "Переплата",
+            }
 
             for pay, member in results:
                 status = pay.status
-                tag = {"paid": "paid", "partial": "partial", "not_paid": "not_paid"}.get(status, "")
+                tag = {
+                    "paid": "paid",
+                    "partial": "partial",
+                    "not_paid": "not_paid",
+                    "overpaid": "overpaid",
+                }.get(status, "")
                 remaining = pay.amount_due - pay.amount_paid
 
                 total_due += pay.amount_due
@@ -215,12 +225,12 @@ class MembershipFeeTab(BaseTab):
 
 class PeriodDialog(ModalDialog):
     def __init__(self, parent):
-        super().__init__(parent, title="Новый период", width=400, height=300)
+        super().__init__(parent, title="Новый период", width=420, height=360)
         self._build_form()
 
     def _build_form(self):
         form = ctk.CTkFrame(self)
-        form.pack(fill="both", expand=True, padx=10, pady=10)
+        form.pack(side="top", fill="both", expand=True, padx=10, pady=(10, 0))
 
         ctk.CTkLabel(form, text="Название периода").pack(anchor="w", pady=(5, 0))
         self.name_entry = ctk.CTkEntry(form)
@@ -241,7 +251,7 @@ class PeriodDialog(ModalDialog):
         self.due_date.pack(fill="x", pady=(0, 5))
 
         btn_frame = ctk.CTkFrame(self)
-        btn_frame.pack(fill="x", padx=10, pady=10)
+        btn_frame.pack(side="bottom", fill="x", padx=10, pady=10)
         ctk.CTkButton(btn_frame, text="Создать", command=self._save).pack(side="left", padx=5)
         ctk.CTkButton(btn_frame, text="Отмена", fg_color="gray", command=self._on_cancel).pack(side="left", padx=5)
 

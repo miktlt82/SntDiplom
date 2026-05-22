@@ -16,6 +16,7 @@ DARK_COLORS = {
     "row_paid": "#2d4a2d",
     "row_partial": "#4a4a2d",
     "row_not_paid": "#4a2d2d",
+    "row_overpaid": "#2d3f4a",
     "row_archived": "#3c3c3c",
 }
 
@@ -30,6 +31,7 @@ LIGHT_COLORS = {
     "row_paid": "#d4edda",
     "row_partial": "#fff3cd",
     "row_not_paid": "#f8d7da",
+    "row_overpaid": "#d1ecf1",
     "row_archived": "#e2e3e5",
 }
 
@@ -67,6 +69,7 @@ def apply_treeview_theme(tree: ttk.Treeview, style_name: str = "Custom.Treeview"
     tree.tag_configure("paid", background=colors["row_paid"])
     tree.tag_configure("partial", background=colors["row_partial"])
     tree.tag_configure("not_paid", background=colors["row_not_paid"])
+    tree.tag_configure("overpaid", background=colors["row_overpaid"])
     tree.tag_configure("archived", background=colors["row_archived"])
     tree.tag_configure("even", background=colors["tree_bg"])
     tree.tag_configure("odd", background=colors.get("tree_field_bg", colors["tree_bg"]))

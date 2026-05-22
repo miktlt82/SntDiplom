@@ -1,7 +1,7 @@
 """Electricity tab — readings, tariffs, SNT meter, payments."""
 
 from __future__ import annotations
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from tkinter import messagebox
 import customtkinter as ctk
@@ -15,9 +15,11 @@ from app.database.models.member import Member
 from app.database.models.electricity import (
     ElectricityTariff, MeterReading, ElectricityPayment, SntMeterReading
 )
-from app.services.electricity_calculator import create_reading_and_payment
+from app.services.electricity_calculator import (
+    calculate_consumption, create_reading_and_payment
+)
 from app.services.audit_service import log_action
-from app.constants import MemberStatus, AuditAction, PaymentStatus
+from app.constants import MemberStatus, AuditAction
 from app.event_bus import event_bus
 
 
@@ -84,8 +86,18 @@ class ElectricityTab(BaseTab):
                 if payment:
                     amount_due = f"{payment.amount_due:.2f}"
                     st = payment.status
-                    status = {"paid": "Оплачено", "partial": "Частично", "not_paid": "Не оплачено"}.get(st, st)
-                    tag = {"paid": "paid", "partial": "partial", "not_paid": "not_paid"}.get(st, "")
+                    status = {
+                        "paid": "Оплачено",
+                        "partial": "Частично",
+                        "not_paid": "Не оплачено",
+                        "overpaid": "Переплата",
+                    }.get(st, st)
+                    tag = {
+                        "paid": "paid",
+                        "partial": "partial",
+                        "not_paid": "not_paid",
+                        "overpaid": "overpaid",
+                    }.get(st, "")
 
                 rows.append({
                     "id": r.id,
@@ -333,9 +345,12 @@ class TariffDialog(ModalDialog):
             self.tariff_list.delete("1.0", "end")
             for t in tariffs:
                 active = "✓" if t.is_active else "✗"
+                period = f"с {t.effective_from}"
+                if t.effective_to:
+                    period += f" по {t.effective_to}"
                 self.tariff_list.insert(
                     "end",
-                    f"[{active}] {t.name}: {t.rate_per_kwh} руб/кВт·ч, с {t.effective_from}\n"
+                    f"[{active}] {t.name}: {t.rate_per_kwh} руб/кВт·ч, {period}\n"
                 )
             if not tariffs:
                 self.tariff_list.insert("end", "Нет тарифов")
@@ -358,10 +373,36 @@ class TariffDialog(ModalDialog):
 
         try:
             with db_session() as session:
-                session.query(ElectricityTariff).update({"is_active": False})
+                from sqlalchemy import or_
+
+                session.query(ElectricityTariff).filter(
+                    ElectricityTariff.effective_from == from_date
+                ).update({"is_active": False})
+
+                previous = session.query(ElectricityTariff).filter(
+                    ElectricityTariff.is_active.is_(True),
+                    ElectricityTariff.effective_from < from_date,
+                    or_(
+                        ElectricityTariff.effective_to.is_(None),
+                        ElectricityTariff.effective_to >= from_date,
+                    ),
+                ).order_by(ElectricityTariff.effective_from.desc()).first()
+                if previous:
+                    previous.effective_to = from_date - timedelta(days=1)
+
+                next_tariff = session.query(ElectricityTariff).filter(
+                    ElectricityTariff.is_active.is_(True),
+                    ElectricityTariff.effective_from > from_date,
+                ).order_by(ElectricityTariff.effective_from.asc()).first()
+                effective_to = (
+                    next_tariff.effective_from - timedelta(days=1)
+                    if next_tariff else None
+                )
+
                 tariff = ElectricityTariff(
                     name=name, rate_per_kwh=rate,
-                    effective_from=from_date, is_active=True
+                    effective_from=from_date, effective_to=effective_to,
+                    is_active=True,
                 )
                 session.add(tariff)
             self._load_tariffs()
@@ -436,7 +477,10 @@ class SntMeterDialog(ModalDialog):
                     SntMeterReading.reading_date.desc()
                 ).first()
                 prev_val = prev.value if prev else None
-                consumption = (val - prev_val) if prev_val is not None else None
+                consumption = (
+                    calculate_consumption(val, prev_val)
+                    if prev_val is not None else None
+                )
 
                 reading = SntMeterReading(
                     reading_date=rd, value=val,
