@@ -14,6 +14,7 @@ from app.gui.tabs.target_fee_tab import TargetFeeTab
 from app.gui.tabs.electricity_tab import ElectricityTab
 from app.gui.tabs.notes_tab import NotesTab
 from app.gui.tabs.analytics_tab import AnalyticsTab
+from app.gui.tabs.service_tab import ServiceTab
 from app.services.backup_service import create_backup
 from app.logger import get_logger
 
@@ -40,6 +41,7 @@ def main():
     app.add_tab("Электроэнергия", ElectricityTab(app))
     app.add_tab("Заметки", NotesTab(app))
     app.add_tab("Аналитика", AnalyticsTab(app))
+    app.add_tab("Сервис", ServiceTab(app))
 
     # Auto-backup on startup
     try:

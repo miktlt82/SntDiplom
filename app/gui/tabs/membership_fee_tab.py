@@ -13,7 +13,9 @@ from app.gui.widgets.modal_dialog import ModalDialog
 from app.database.engine import db_session
 from app.database.models.member import Member
 from app.database.models.membership_fee import MembershipFeePeriod, MembershipFeePayment
-from app.services.fee_calculator import generate_payments_for_period, record_payment
+from app.services.fee_calculator import (
+    calculate_fee_for_member, generate_payments_for_period, record_payment
+)
 from app.services.audit_service import log_action
 from app.constants import AuditAction
 from app.event_bus import event_bus
@@ -54,6 +56,16 @@ class MembershipFeeTab(BaseTab):
         ctk.CTkButton(
             row2, text="+ Новый период", width=140,
             command=self._create_period
+        ).pack(side="left", padx=5)
+
+        ctk.CTkButton(
+            row2, text="Редактировать", width=120,
+            command=self._edit_period
+        ).pack(side="left", padx=5)
+
+        ctk.CTkButton(
+            row2, text="Удалить", width=90,
+            command=self._delete_period
         ).pack(side="left", padx=5)
 
         ctk.CTkButton(
@@ -182,6 +194,53 @@ class MembershipFeeTab(BaseTab):
         if result:
             self.refresh_data()
 
+    def _edit_period(self):
+        period_id = self._get_current_period_id()
+        if not period_id:
+            messagebox.showwarning("Внимание", "Выберите период")
+            return
+        dialog = PeriodDialog(self.app, period_id=period_id)
+        if dialog.wait_for_result():
+            self.refresh_data()
+            event_bus.publish("fee_paid")
+            self.set_status("Период обновлён")
+
+    def _delete_period(self):
+        period_id = self._get_current_period_id()
+        if not period_id:
+            messagebox.showwarning("Внимание", "Выберите период")
+            return
+
+        with db_session(readonly=True) as session:
+            period = session.get(MembershipFeePeriod, period_id)
+            if not period:
+                messagebox.showerror("Ошибка", "Период не найден")
+                return
+            payments_count = session.query(MembershipFeePayment).filter(
+                MembershipFeePayment.period_id == period_id
+            ).count()
+            period_name = period.name
+
+        if not messagebox.askyesno(
+            "Удаление периода",
+            f"Удалить период «{period_name}»?\n"
+            f"Начисления будут удалены: {payments_count}",
+        ):
+            return
+
+        try:
+            with db_session() as session:
+                period = session.get(MembershipFeePeriod, period_id)
+                if period:
+                    session.delete(period)
+                    log_action(AuditAction.DELETE.value, "membership_fee_period",
+                               period_id, period_name)
+            self.refresh_data()
+            event_bus.publish("fee_paid")
+            self.set_status("Период удалён")
+        except Exception as e:
+            messagebox.showerror("Ошибка", str(e))
+
     def _generate_payments(self):
         period_id = self._get_current_period_id()
         if not period_id:
@@ -224,9 +283,13 @@ class MembershipFeeTab(BaseTab):
 
 
 class PeriodDialog(ModalDialog):
-    def __init__(self, parent):
-        super().__init__(parent, title="Новый период", width=420, height=360)
+    def __init__(self, parent, period_id: int | None = None):
+        self.period_id = period_id
+        title = "Редактирование периода" if period_id else "Новый период"
+        super().__init__(parent, title=title, width=420, height=360)
         self._build_form()
+        if period_id:
+            self._load_period()
 
     def _build_form(self):
         form = ctk.CTkFrame(self)
@@ -252,8 +315,22 @@ class PeriodDialog(ModalDialog):
 
         btn_frame = ctk.CTkFrame(self)
         btn_frame.pack(side="bottom", fill="x", padx=10, pady=10)
-        ctk.CTkButton(btn_frame, text="Создать", command=self._save).pack(side="left", padx=5)
+        button_text = "Сохранить" if self.period_id else "Создать"
+        ctk.CTkButton(btn_frame, text=button_text, command=self._save).pack(side="left", padx=5)
         ctk.CTkButton(btn_frame, text="Отмена", fg_color="gray", command=self._on_cancel).pack(side="left", padx=5)
+
+    def _load_period(self):
+        with db_session(readonly=True) as session:
+            period = session.get(MembershipFeePeriod, self.period_id)
+            if not period:
+                return
+            self.name_entry.delete(0, "end")
+            self.name_entry.insert(0, period.name)
+            self.year_entry.delete(0, "end")
+            self.year_entry.insert(0, str(period.year))
+            self.rate_entry.delete(0, "end")
+            self.rate_entry.insert(0, str(period.rate_per_sotka))
+            self.due_date.set_date(period.due_date)
 
     def _save(self):
         name = self.name_entry.get().strip()
@@ -282,13 +359,31 @@ class PeriodDialog(ModalDialog):
 
         try:
             with db_session() as session:
-                period = MembershipFeePeriod(
-                    name=name, year=year, rate_per_sotka=rate,
-                    due_date=due,
-                )
-                session.add(period)
+                if self.period_id:
+                    period = session.get(MembershipFeePeriod, self.period_id)
+                    if not period:
+                        messagebox.showerror("Ошибка", "Период не найден")
+                        return
+                    action = AuditAction.UPDATE.value
+                else:
+                    period = MembershipFeePeriod()
+                    session.add(period)
+                    action = AuditAction.CREATE.value
+
+                period.name = name
+                period.year = year
+                period.rate_per_sotka = rate
+                period.due_date = due
                 session.flush()
-                log_action(AuditAction.CREATE.value, "membership_fee_period", period.id, name)
+                if self.period_id:
+                    payments = session.query(MembershipFeePayment, Member).join(
+                        Member, MembershipFeePayment.member_id == Member.id
+                    ).filter(
+                        MembershipFeePayment.period_id == period.id
+                    ).all()
+                    for payment, member in payments:
+                        payment.amount_due = calculate_fee_for_member(period, member)
+                log_action(action, "membership_fee_period", period.id, name)
             self._on_ok()
         except Exception as e:
             messagebox.showerror("Ошибка", str(e))

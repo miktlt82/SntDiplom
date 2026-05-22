@@ -56,6 +56,10 @@ class TargetFeeTab(BaseTab):
 
         ctk.CTkButton(row2, text="+ Новая кампания", width=150,
                        command=self._create_campaign).pack(side="left", padx=5)
+        ctk.CTkButton(row2, text="Редактировать", width=120,
+                       command=self._edit_campaign).pack(side="left", padx=5)
+        ctk.CTkButton(row2, text="Удалить", width=90,
+                       command=self._delete_campaign).pack(side="left", padx=5)
         ctk.CTkButton(row2, text="Сгенерировать", width=130,
                        command=self._generate_payments).pack(side="left", padx=5)
         ctk.CTkButton(row2, text="Записать оплату", width=130,
@@ -169,6 +173,57 @@ class TargetFeeTab(BaseTab):
         if dialog.wait_for_result():
             self.refresh_data()
 
+    def _edit_campaign(self):
+        cid = self._get_current_campaign_id()
+        if not cid:
+            messagebox.showwarning("Внимание", "Выберите кампанию")
+            return
+        dialog = CampaignDialog(self.app, campaign_id=cid)
+        if dialog.wait_for_result():
+            self.refresh_data()
+            event_bus.publish("fee_paid")
+            self.set_status("Кампания обновлена")
+
+    def _delete_campaign(self):
+        cid = self._get_current_campaign_id()
+        if not cid:
+            messagebox.showwarning("Внимание", "Выберите кампанию")
+            return
+
+        with db_session(readonly=True) as session:
+            campaign = session.get(TargetFeeCampaign, cid)
+            if not campaign:
+                messagebox.showerror("Ошибка", "Кампания не найдена")
+                return
+            payments_count = session.query(TargetFeePayment).filter(
+                TargetFeePayment.campaign_id == cid
+            ).count()
+            docs_count = session.query(TargetFeeDocument).filter(
+                TargetFeeDocument.campaign_id == cid
+            ).count()
+            campaign_name = campaign.name
+
+        if not messagebox.askyesno(
+            "Удаление кампании",
+            f"Удалить кампанию «{campaign_name}»?\n"
+            f"Начисления будут удалены: {payments_count}\n"
+            f"Документы в записи кампании: {docs_count}",
+        ):
+            return
+
+        try:
+            with db_session() as session:
+                campaign = session.get(TargetFeeCampaign, cid)
+                if campaign:
+                    session.delete(campaign)
+                    log_action(AuditAction.DELETE.value, "target_fee_campaign",
+                               cid, campaign_name)
+            self.refresh_data()
+            event_bus.publish("fee_paid")
+            self.set_status("Кампания удалена")
+        except Exception as e:
+            messagebox.showerror("Ошибка", str(e))
+
     def _generate_payments(self):
         cid = self._get_current_campaign_id()
         if not cid:
@@ -208,6 +263,7 @@ class TargetFeeTab(BaseTab):
         def _on_success(count):
             self.set_status(f"Сгенерировано {count} записей")
             self._load_payments()
+            event_bus.publish("fee_paid")
 
         ProgressDialog(
             self.app, "Генерация платежей...",
@@ -241,9 +297,13 @@ class TargetFeeTab(BaseTab):
 
 
 class CampaignDialog(ModalDialog):
-    def __init__(self, parent):
-        super().__init__(parent, title="Новая кампания", width=500, height=430)
+    def __init__(self, parent, campaign_id: int | None = None):
+        self.campaign_id = campaign_id
+        title = "Редактирование кампании" if campaign_id else "Новая кампания"
+        super().__init__(parent, title=title, width=500, height=430)
         self._build_form()
+        if campaign_id:
+            self._load_campaign()
 
     def _build_form(self):
         form = ctk.CTkFrame(self)
@@ -276,9 +336,24 @@ class CampaignDialog(ModalDialog):
 
         btn_frame = ctk.CTkFrame(self)
         btn_frame.pack(fill="x", padx=10, pady=10)
-        ctk.CTkButton(btn_frame, text="Создать", command=self._save).pack(side="left", padx=5)
+        button_text = "Сохранить" if self.campaign_id else "Создать"
+        ctk.CTkButton(btn_frame, text=button_text, command=self._save).pack(side="left", padx=5)
         ctk.CTkButton(btn_frame, text="Отмена", fg_color="gray",
                        command=self._on_cancel).pack(side="left", padx=5)
+
+    def _load_campaign(self):
+        with db_session(readonly=True) as session:
+            campaign = session.get(TargetFeeCampaign, self.campaign_id)
+            if not campaign:
+                return
+            self.name_entry.delete(0, "end")
+            self.name_entry.insert(0, campaign.name)
+            self.desc_entry.delete("1.0", "end")
+            self.desc_entry.insert("1.0", campaign.description or "")
+            self.type_var.set(campaign.fee_type)
+            self.amount_entry.delete(0, "end")
+            self.amount_entry.insert(0, str(campaign.amount))
+            self.due_date.set_date(campaign.due_date)
 
     def _save(self):
         name = self.name_entry.get().strip()
@@ -300,16 +375,35 @@ class CampaignDialog(ModalDialog):
 
         try:
             with db_session() as session:
-                campaign = TargetFeeCampaign(
-                    name=name,
-                    description=self.desc_entry.get("1.0", "end").strip() or None,
-                    fee_type=self.type_var.get(),
-                    amount=amount,
-                    due_date=due,
-                )
-                session.add(campaign)
+                if self.campaign_id:
+                    campaign = session.get(TargetFeeCampaign, self.campaign_id)
+                    if not campaign:
+                        messagebox.showerror("Ошибка", "Кампания не найдена")
+                        return
+                    action = AuditAction.UPDATE.value
+                else:
+                    campaign = TargetFeeCampaign()
+                    session.add(campaign)
+                    action = AuditAction.CREATE.value
+
+                campaign.name = name
+                campaign.description = self.desc_entry.get("1.0", "end").strip() or None
+                campaign.fee_type = self.type_var.get()
+                campaign.amount = amount
+                campaign.due_date = due
                 session.flush()
-                log_action(AuditAction.CREATE.value, "target_fee_campaign", campaign.id, name)
+                if self.campaign_id:
+                    payments = session.query(TargetFeePayment, Member).join(
+                        Member, TargetFeePayment.member_id == Member.id
+                    ).filter(
+                        TargetFeePayment.campaign_id == campaign.id
+                    ).all()
+                    for payment, member in payments:
+                        if campaign.fee_type == TargetFeeType.PER_SOTKA.value:
+                            payment.amount_due = (campaign.amount * member.plot_area).quantize(Decimal("0.01"))
+                        else:
+                            payment.amount_due = campaign.amount
+                log_action(action, "target_fee_campaign", campaign.id, name)
             self._on_ok()
         except Exception as e:
             messagebox.showerror("Ошибка", str(e))
