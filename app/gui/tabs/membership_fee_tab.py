@@ -10,6 +10,7 @@ from app.gui.tabs.base_tab import BaseTab
 from app.gui.widgets.styled_treeview import StyledTreeview
 from app.gui.widgets.date_picker import DatePicker
 from app.gui.widgets.modal_dialog import ModalDialog
+from app.gui.tabs.fee_payment_history_dialog import FeePaymentHistoryDialog
 from app.database.engine import db_session
 from app.database.models.member import Member
 from app.database.models.membership_fee import MembershipFeePeriod, MembershipFeePayment
@@ -23,7 +24,7 @@ from app.gui.widgets.progress_dialog import ProgressDialog
 
 
 PAYMENT_COLUMNS = [
-    {"id": "id", "text": "ID", "width": 40, "anchor": "center", "stretch": False},
+    {"id": "row_num", "text": "№", "width": 45, "anchor": "center", "stretch": False},
     {"id": "plot_number", "text": "Участок", "width": 80, "anchor": "center"},
     {"id": "full_name", "text": "ФИО", "width": 220},
     {"id": "area", "text": "Площадь", "width": 80, "anchor": "center"},
@@ -76,6 +77,11 @@ class MembershipFeeTab(BaseTab):
         ctk.CTkButton(
             row2, text="Записать оплату", width=130,
             command=self._record_payment_dialog
+        ).pack(side="left", padx=5)
+
+        ctk.CTkButton(
+            row2, text="История оплат", width=120,
+            command=self._show_payment_history
         ).pack(side="left", padx=5)
 
         # Table
@@ -156,7 +162,7 @@ class MembershipFeeTab(BaseTab):
                 "overpaid": "Переплата",
             }
 
-            for pay, member in results:
+            for row_num, (pay, member) in enumerate(results, start=1):
                 status = pay.status
                 tag = {
                     "paid": "paid",
@@ -172,6 +178,7 @@ class MembershipFeeTab(BaseTab):
 
                 rows.append({
                     "id": pay.id,
+                    "row_num": row_num,
                     "plot_number": member.plot_number,
                     "full_name": member.full_name,
                     "area": str(member.plot_area),
@@ -275,6 +282,18 @@ class MembershipFeeTab(BaseTab):
             self._load_payments()
             event_bus.publish("fee_paid")
             self.set_status("Оплата записана")
+
+    def _show_payment_history(self):
+        iid = self.tree.get_selected_iid()
+        if not iid:
+            messagebox.showwarning("Внимание", "Выберите запись")
+            return
+        dialog = FeePaymentHistoryDialog(
+            self.app,
+            payment_type="membership",
+            payment_id=int(iid),
+        )
+        dialog.wait_for_result()
 
     def _subscribe_events(self):
         super()._subscribe_events()

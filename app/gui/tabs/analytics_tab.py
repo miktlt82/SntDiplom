@@ -14,6 +14,7 @@ from app.gui.widgets.styled_treeview import StyledTreeview
 from app.services.report_service import (
     get_member_stats, get_membership_fee_summary, get_target_fee_summary,
     get_electricity_summary, get_debtors_list, get_payments_by_period,
+    get_target_payments_by_campaign, get_electricity_payments_by_period,
 )
 
 
@@ -29,6 +30,7 @@ class AnalyticsTab(BaseTab):
     def __init__(self, app):
         super().__init__(app)
         self._refresh_generation = 0
+        self._last_data = None
 
     def _build_ui(self):
         # Scrollable container
@@ -43,6 +45,20 @@ class AnalyticsTab(BaseTab):
         self.mfee_card = self._create_card(cards_frame, "Членские взносы")
         self.tfee_card = self._create_card(cards_frame, "Целевые взносы")
         self.elec_card = self._create_card(cards_frame, "Электроэнергия")
+
+        # Analytics selector
+        selector_frame = ctk.CTkFrame(container)
+        selector_frame.pack(fill="x", pady=(5, 0))
+
+        ctk.CTkLabel(selector_frame, text="Графики:").pack(side="left", padx=5)
+        self.analytics_scope_var = ctk.StringVar(value="Членские взносы")
+        ctk.CTkOptionMenu(
+            selector_frame,
+            variable=self.analytics_scope_var,
+            values=["Членские взносы", "Целевые взносы", "Электроэнергия"],
+            command=lambda _: self._refresh_charts_from_cache(),
+            width=220,
+        ).pack(side="left", padx=5, pady=5)
 
         # Charts row
         charts_frame = ctk.CTkFrame(container)
@@ -92,12 +108,15 @@ class AnalyticsTab(BaseTab):
                 "elec": get_electricity_summary(),
                 "debtors": get_debtors_list(),
                 "periods": get_payments_by_period(),
+                "campaigns": get_target_payments_by_campaign(),
+                "electricity_periods": get_electricity_payments_by_period(),
             }
 
         def _on_success(data):
             if current_gen != self._refresh_generation:
                 return  # stale result — DB was switched during fetch
             try:
+                self._last_data = data
                 self._apply_cards(data)
                 self._apply_charts(data)
                 self._apply_debtors(data)
@@ -136,30 +155,59 @@ class AnalyticsTab(BaseTab):
         )
 
     def _apply_charts(self, data):
-        mf = data["mfee"]
+        scope = self.analytics_scope_var.get()
+        config = {
+            "Членские взносы": {
+                "summary": "mfee",
+                "series": "periods",
+                "pie_title": "Членские взносы (статусы)",
+                "bar_title": "Оплаты по периодам",
+            },
+            "Целевые взносы": {
+                "summary": "tfee",
+                "series": "campaigns",
+                "pie_title": "Целевые взносы (статусы)",
+                "bar_title": "Оплаты по кампаниям",
+            },
+            "Электроэнергия": {
+                "summary": "elec",
+                "series": "electricity_periods",
+                "pie_title": "Электроэнергия (статусы)",
+                "bar_title": "Оплаты по месяцам",
+            },
+        }.get(scope)
+
+        if not config:
+            return
+
+        summary = data[config["summary"]]
         self.pie_chart.pie_chart(
             labels=["Оплачено", "Переплата", "Частично", "Не оплачено"],
             values=[
-                mf["paid_count"],
-                mf.get("overpaid_count", 0),
-                mf["partial_count"],
-                mf["not_paid_count"],
+                summary["paid_count"],
+                summary.get("overpaid_count", 0),
+                summary["partial_count"],
+                summary["not_paid_count"],
             ],
-            title="Членские взносы (статусы)",
+            title=config["pie_title"],
             colors=["#28a745", "#17a2b8", "#ffc107", "#dc3545"],
         )
 
-        periods = data["periods"]
-        if periods:
-            labels = [p["period"][:15] for p in periods]
-            paid = [p["total_paid"] for p in periods]
+        series = data[config["series"]]
+        if series:
+            labels = [p["period"][:18] for p in series]
+            paid = [p["total_paid"] for p in series]
             self.bar_chart.bar_chart(
                 labels=labels, values=paid,
-                title="Оплаты по периодам", ylabel="Руб."
+                title=config["bar_title"], ylabel="Руб."
             )
         else:
             self.bar_chart.clear()
             self.bar_chart.draw()
+
+    def _refresh_charts_from_cache(self):
+        if self._last_data:
+            self._apply_charts(self._last_data)
 
     def _apply_debtors(self, data):
         debtors = data["debtors"]

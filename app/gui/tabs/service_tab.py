@@ -216,7 +216,7 @@ class ServiceTab(BaseTab):
         path = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
             filetypes=[("Excel", "*.xlsx")],
-            initialfile="participants.xlsx",
+            initialfile="участники.xlsx",
         )
         if path:
             self._run_export(
@@ -229,7 +229,7 @@ class ServiceTab(BaseTab):
         path = filedialog.asksaveasfilename(
             defaultextension=".pdf",
             filetypes=[("PDF", "*.pdf")],
-            initialfile="participants.pdf",
+            initialfile="участники.pdf",
         )
         if path:
             self._run_export(
@@ -242,7 +242,7 @@ class ServiceTab(BaseTab):
         path = filedialog.asksaveasfilename(
             defaultextension=".pdf",
             filetypes=[("PDF", "*.pdf")],
-            initialfile="debtors.pdf",
+            initialfile="должники.pdf",
         )
         if path:
             self._run_export(

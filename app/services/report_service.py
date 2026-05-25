@@ -32,6 +32,30 @@ def _positive_outstanding(session, payment_model) -> Decimal:
     return Decimal(str(value))
 
 
+def _status_counts(session, payment_model) -> dict[str, int]:
+    """Count payment rows by computed status using SQL conditions."""
+    paid_count = session.query(func.count(payment_model.id)).filter(
+        payment_model.amount_paid == payment_model.amount_due,
+        payment_model.amount_due > 0,
+    ).scalar() or 0
+    overpaid_count = session.query(func.count(payment_model.id)).filter(
+        payment_model.amount_paid > payment_model.amount_due,
+    ).scalar() or 0
+    partial_count = session.query(func.count(payment_model.id)).filter(
+        payment_model.amount_paid > 0,
+        payment_model.amount_paid < payment_model.amount_due,
+    ).scalar() or 0
+    not_paid_count = session.query(func.count(payment_model.id)).filter(
+        payment_model.amount_paid == 0,
+    ).scalar() or 0
+    return {
+        "paid_count": paid_count,
+        "overpaid_count": overpaid_count,
+        "partial_count": partial_count,
+        "not_paid_count": not_paid_count,
+    }
+
+
 def get_member_stats() -> dict:
     with db_session(readonly=True) as session:
         total = session.query(Member).count()
@@ -52,30 +76,11 @@ def get_membership_fee_summary() -> dict:
         ).first()
         total_due = Decimal(str(row[0]))
         total_paid = Decimal(str(row[1]))
-        # Status is a computed property, so count via SQL conditions
-        paid_count = session.query(func.count(MembershipFeePayment.id)).filter(
-            MembershipFeePayment.amount_paid == MembershipFeePayment.amount_due,
-            MembershipFeePayment.amount_due > 0,
-        ).scalar() or 0
-        overpaid_count = session.query(func.count(MembershipFeePayment.id)).filter(
-            MembershipFeePayment.amount_paid > MembershipFeePayment.amount_due,
-        ).scalar() or 0
-        partial_count = session.query(func.count(MembershipFeePayment.id)).filter(
-            MembershipFeePayment.amount_paid > 0,
-            MembershipFeePayment.amount_paid < MembershipFeePayment.amount_due,
-        ).scalar() or 0
-        not_paid_count = session.query(func.count(MembershipFeePayment.id)).filter(
-            MembershipFeePayment.amount_paid == 0,
-        ).scalar() or 0
-
         return {
             "total_due": total_due,
             "total_paid": total_paid,
             "outstanding": _positive_outstanding(session, MembershipFeePayment),
-            "paid_count": paid_count,
-            "overpaid_count": overpaid_count,
-            "partial_count": partial_count,
-            "not_paid_count": not_paid_count,
+            **_status_counts(session, MembershipFeePayment),
         }
 
 
@@ -91,6 +96,7 @@ def get_target_fee_summary() -> dict:
             "total_due": total_due,
             "total_paid": total_paid,
             "outstanding": _positive_outstanding(session, TargetFeePayment),
+            **_status_counts(session, TargetFeePayment),
         }
 
 
@@ -106,6 +112,7 @@ def get_electricity_summary() -> dict:
             "total_due": total_due,
             "total_paid": total_paid,
             "outstanding": _positive_outstanding(session, ElectricityPayment),
+            **_status_counts(session, ElectricityPayment),
         }
 
 
@@ -193,4 +200,54 @@ def get_payments_by_period() -> list[dict]:
                 "total_paid": float(total_paid),
             }
             for name, year, total_due, total_paid in rows
+        ]
+
+
+def get_target_payments_by_campaign() -> list[dict]:
+    """Get payment totals by target fee campaign."""
+    with db_session(readonly=True) as session:
+        rows = session.query(
+            TargetFeeCampaign.name,
+            func.coalesce(func.sum(TargetFeePayment.amount_due), 0),
+            func.coalesce(func.sum(TargetFeePayment.amount_paid), 0),
+        ).outerjoin(
+            TargetFeePayment,
+            TargetFeePayment.campaign_id == TargetFeeCampaign.id,
+        ).group_by(
+            TargetFeeCampaign.id,
+        ).order_by(
+            TargetFeeCampaign.id,
+        ).all()
+
+        return [
+            {
+                "period": name,
+                "total_due": float(total_due),
+                "total_paid": float(total_paid),
+            }
+            for name, total_due, total_paid in rows
+        ]
+
+
+def get_electricity_payments_by_period() -> list[dict]:
+    """Get electricity payment totals grouped by payment month."""
+    with db_session(readonly=True) as session:
+        month_expr = func.strftime("%Y-%m", ElectricityPayment.period_end)
+        rows = session.query(
+            month_expr,
+            func.coalesce(func.sum(ElectricityPayment.amount_due), 0),
+            func.coalesce(func.sum(ElectricityPayment.amount_paid), 0),
+        ).group_by(
+            month_expr,
+        ).order_by(
+            month_expr,
+        ).all()
+
+        return [
+            {
+                "period": month or "—",
+                "total_due": float(total_due),
+                "total_paid": float(total_paid),
+            }
+            for month, total_due, total_paid in rows
         ]
