@@ -47,6 +47,7 @@ def _status_counts(session, payment_model) -> dict[str, int]:
     ).scalar() or 0
     not_paid_count = session.query(func.count(payment_model.id)).filter(
         payment_model.amount_paid == 0,
+        payment_model.amount_due > 0,
     ).scalar() or 0
     return {
         "paid_count": paid_count,

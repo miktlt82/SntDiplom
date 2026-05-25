@@ -9,10 +9,14 @@ import pytest
 from app.database.models.electricity import (
     ElectricityTariff, MeterReading, ElectricityPayment
 )
+from app.database.models.payment_history import PaymentHistory
 from app.services.electricity_calculator import (
     calculate_consumption,
+    create_monthly_electricity_readings,
     detect_anomaly,
     get_active_tariff,
+    get_month_bounds,
+    record_electricity_payment,
     create_reading_and_payment,
 )
 
@@ -71,6 +75,14 @@ class TestActiveTariff:
         assert get_active_tariff(session, date(2025, 4, 15)).id == new.id
 
 
+class TestMonthBounds:
+    def test_regular_month(self):
+        assert get_month_bounds(2025, 4) == (date(2025, 4, 1), date(2025, 4, 30))
+
+    def test_leap_february(self):
+        assert get_month_bounds(2024, 2) == (date(2024, 2, 1), date(2024, 2, 29))
+
+
 class TestCreateReadingAndPayment:
     def test_first_reading_no_payment(self, session, seed_members, seed_tariff):
         """First reading has no previous — no consumption, no payment."""
@@ -115,3 +127,96 @@ class TestCreateReadingAndPayment:
 
         assert result["consumption"] == Decimal("0")
         assert result["payment_id"] is None
+
+
+class TestMonthlyElectricityReadings:
+    def test_first_month_creates_baseline_without_payment(self, session, seed_members, seed_tariff):
+        member = seed_members[0]
+
+        result = create_monthly_electricity_readings(
+            2025, 1, {member.id: Decimal("100")}
+        )
+
+        readings = session.query(MeterReading).filter(
+            MeterReading.member_id == member.id
+        ).all()
+        payments = session.query(ElectricityPayment).filter(
+            ElectricityPayment.member_id == member.id
+        ).all()
+        assert result["created_readings"] == 1
+        assert result["baseline_readings"] == 1
+        assert len(readings) == 1
+        assert readings[0].reading_date == date(2025, 1, 31)
+        assert payments == []
+
+    def test_second_month_creates_monthly_charge(self, session, seed_members, seed_tariff):
+        member = seed_members[0]
+        create_monthly_electricity_readings(2025, 1, {member.id: Decimal("100")})
+
+        result = create_monthly_electricity_readings(
+            2025, 2, {member.id: Decimal("250")}
+        )
+
+        payment = session.query(ElectricityPayment).filter(
+            ElectricityPayment.member_id == member.id
+        ).one()
+        assert result["created_payments"] == 1
+        assert payment.period_start == date(2025, 2, 1)
+        assert payment.period_end == date(2025, 2, 28)
+        assert payment.consumption_kwh == Decimal("150.00")
+        assert payment.amount_due == Decimal("825.00")
+
+    def test_reentering_month_updates_charge_and_preserves_paid(self, session, seed_members, seed_tariff):
+        member = seed_members[0]
+        create_monthly_electricity_readings(2025, 1, {member.id: Decimal("100")})
+        create_monthly_electricity_readings(2025, 2, {member.id: Decimal("250")})
+        payment = session.query(ElectricityPayment).filter(
+            ElectricityPayment.member_id == member.id
+        ).one()
+        payment.amount_paid = Decimal("100")
+        session.commit()
+
+        result = create_monthly_electricity_readings(
+            2025, 2, {member.id: Decimal("260")}
+        )
+
+        updated = session.get(ElectricityPayment, payment.id)
+        assert result["updated_readings"] == 1
+        assert result["updated_payments"] == 1
+        assert updated.consumption_kwh == Decimal("160.00")
+        assert updated.amount_due == Decimal("880.00")
+        assert updated.amount_paid == Decimal("100.00")
+
+    def test_record_payment_writes_history(self, session, seed_members, seed_tariff):
+        member = seed_members[0]
+        create_monthly_electricity_readings(2025, 1, {member.id: Decimal("100")})
+        create_monthly_electricity_readings(2025, 2, {member.id: Decimal("250")})
+        payment = session.query(ElectricityPayment).filter(
+            ElectricityPayment.member_id == member.id
+        ).one()
+
+        record_electricity_payment(payment.id, Decimal("300"), date(2025, 3, 5))
+
+        session.expire_all()
+        updated = session.get(ElectricityPayment, payment.id)
+        history = session.query(PaymentHistory).filter(
+            PaymentHistory.payment_type == "electricity",
+            PaymentHistory.payment_id == payment.id,
+        ).one()
+        assert updated.amount_paid == Decimal("300.00")
+        assert updated.payment_date == date(2025, 3, 5)
+        assert history.amount == Decimal("300.00")
+
+    def test_missing_tariff_only_blocks_charge_not_baseline(self, session, seed_members):
+        member = seed_members[0]
+
+        baseline = create_monthly_electricity_readings(
+            2025, 1, {member.id: Decimal("100")}
+        )
+        charge = create_monthly_electricity_readings(
+            2025, 2, {member.id: Decimal("250")}
+        )
+
+        assert baseline["missing_tariff"] is False
+        assert charge["missing_tariff"] is True
+        assert session.query(ElectricityPayment).count() == 0

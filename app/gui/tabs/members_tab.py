@@ -12,6 +12,7 @@ from app.gui.widgets.modal_dialog import ModalDialog
 from app.database.engine import db_session
 from app.database.models.member import Member, MemberStatusHistory
 from app.database.models.payment_history import PaymentHistory
+from app.database.models.electricity import ElectricityPayment
 from app.database.models.membership_fee import MembershipFeePeriod, MembershipFeePayment
 from app.database.models.target_fee import TargetFeeCampaign, TargetFeePayment
 from app.constants import MemberStatus, AuditAction
@@ -227,6 +228,7 @@ class PaymentHistoryDialog(ModalDialog):
 
         self.tabview.add("Членские взносы")
         self.tabview.add("Целевые взносы")
+        self.tabview.add("Электроэнергия")
 
         # Membership fees tree
         self.membership_tree = StyledTreeview(
@@ -243,6 +245,14 @@ class PaymentHistoryDialog(ModalDialog):
             style_name="THist.Treeview",
         )
         self.target_tree.pack_with_scrollbar()
+
+        # Electricity history tree
+        self.electricity_tree = StyledTreeview(
+            self.tabview.tab("Электроэнергия"),
+            columns=HISTORY_COLUMNS,
+            style_name="EHist.Treeview",
+        )
+        self.electricity_tree.pack_with_scrollbar()
 
         # Close button
         ctk.CTkButton(self, text="Закрыть", command=self._on_cancel).pack(pady=10)
@@ -298,3 +308,26 @@ class PaymentHistoryDialog(ModalDialog):
                     "total_paid": f"{total_paid:.2f}",
                 })
             self.target_tree.load_data(t_rows)
+
+            # Electricity history
+            e_rows = []
+            e_history = session.query(PaymentHistory).filter(
+                PaymentHistory.member_id == self.member_id,
+                PaymentHistory.payment_type == "electricity",
+            ).order_by(PaymentHistory.payment_date.desc()).all()
+
+            for h in e_history:
+                period_name = "—"
+                total_paid = Decimal("0")
+                pay = session.get(ElectricityPayment, h.payment_id)
+                if pay:
+                    total_paid = pay.amount_paid
+                    period_name = f"{pay.period_start} — {pay.period_end}"
+                e_rows.append({
+                    "id": h.id,
+                    "period": period_name,
+                    "date": str(h.payment_date),
+                    "amount": f"{h.amount:.2f}",
+                    "total_paid": f"{total_paid:.2f}",
+                })
+            self.electricity_tree.load_data(e_rows)

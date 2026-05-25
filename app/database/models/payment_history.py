@@ -13,7 +13,7 @@ class PaymentHistory(TimestampMixin, Base):
     __tablename__ = "payment_history"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    payment_type: Mapped[str] = mapped_column(String(20), nullable=False)  # "membership" | "target"
+    payment_type: Mapped[str] = mapped_column(String(20), nullable=False)  # membership | target | electricity
     payment_id: Mapped[int] = mapped_column(Integer, nullable=False)
     member_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("members.id", ondelete="CASCADE"), nullable=False

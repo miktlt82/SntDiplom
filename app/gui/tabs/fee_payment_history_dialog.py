@@ -7,6 +7,7 @@ import customtkinter as ctk
 
 from app.database.engine import db_session
 from app.database.models.member import Member
+from app.database.models.electricity import ElectricityPayment
 from app.database.models.membership_fee import MembershipFeePayment, MembershipFeePeriod
 from app.database.models.payment_history import PaymentHistory
 from app.database.models.target_fee import TargetFeeCampaign, TargetFeePayment
@@ -90,13 +91,22 @@ class FeePaymentHistoryDialog(ModalDialog):
                 subject = "Членские взносы"
                 if period:
                     subject = f"{period.name} ({period.year})"
-            else:
+            elif self.payment_type == "target":
                 payment = session.get(TargetFeePayment, self.payment_id)
                 if not payment:
                     return empty
                 member = session.get(Member, payment.member_id)
                 campaign = session.get(TargetFeeCampaign, payment.campaign_id)
                 subject = campaign.name if campaign else "Целевой взнос"
+            else:
+                payment = session.get(ElectricityPayment, self.payment_id)
+                if not payment:
+                    return empty
+                member = session.get(Member, payment.member_id)
+                subject = (
+                    f"Электроэнергия: {payment.period_start} — "
+                    f"{payment.period_end}, {payment.consumption_kwh:.2f} кВт·ч"
+                )
 
             amount_due = payment.amount_due or Decimal("0")
             amount_paid = payment.amount_paid or Decimal("0")
